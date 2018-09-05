@@ -20,7 +20,7 @@ install.packages(packages)
 lapply(packages, library, character.only = TRUE)
 ```
 
-# Running the test and result Explanation
+# Running the Test and Result Explanation
 
 ## Section 1: Showing the correlation between announcements and market movement
 This experiment will show, based on past market data, that stock price movement is dependent on announcement
@@ -162,4 +162,98 @@ And it is no longer statistically significant, and also has extremely low r-squa
 tests.
 . . . but what if we want to account for different announcement types and their individual effects on market
 prices?
+
+## Newwer, More Granular Hypotheses
+Whether certain marcro announcements have a greater effect on stock market or not?
+We will now split our announcements into their respective announcement types by their code, like so:
+```
+announcement_types <- unique(announce$Code)
+announcement_types
+```
+### Output
+```
+[1] "ADP" "BP" "CAB" "CAPU" "CCL" "CCO" "CCR" "CGO"
+[9] "COS" "CPI" "CPM" "CSCI" "DF" "DGO" "ECI" "EHS"
+[17] "EMP" "FOMC" "FOR" "GDP" "GDPD" "HMI" "HS" "INCL"
+[25] "INP" "INV" "IPI" "ISM" "ISMNM" "ISMPP" "LIN" "MBS"
+[33] "MEMP" "NHS" "NYM" "PECA" "PECF" "PECP" "PEI" "PES"
+[41] "PF" "PHS" "PPI" "RES" "TB" "UMCOF" "UMCOP" "UNE"
+```
+For each of these announcement types, we will make a hypothesis as follows: Stock price movement does
+have significant correlation with this type of macro annoucement. 
+
+## Absolutely Not!
+Since we can now select for each type of macro announcement, the justification of using absolute values for
+the price and announcement signals no longer hold. Hence, we will re-engineer and remerge these features in
+order to get a more accurate assessment of the price and announcement movements.
+```
+announce$Announcement_signal <- (announce$Actual - announce$Survey) / announce$Survey
+
+ES5min$Five_min_market_signal <- (ES5min$After_five_min_close - ES5min$Close) / ES5min$Close
+ES5min$Ten_min_market_signal <- (ES5min$After_ten_min_close - ES5min$Close) / ES5min$Close
+ES5min$Thirty_min_market_signal <- (ES5min$After_thirty_min_close - ES5min$Close) / ES5min$Close
+
+merged <- merge(x=ES5min, y=announce, by="Date_time")
+merged <- merged[!is.infinite(merged$Announcement_signal),]
+```
+## Putting it All on the Table
+We will now create a table for our final results with respect to price movements after 5 minutes, as creating a
+large amount of models is unfeasible.
+```
+hypothesis_b_table <- data.frame(event_name= character(), linear_coefficient = double(),
+                                r_squared= double(), p_value = double(),
+                                stringsAsFactors=FALSE)
+```
+We will now populate the table by looping over our event type list, creating a linear model for each one, and
+storing its relevant results. In addition, we will then sort the table based on its r_squared values, in order to
+see which announcement type contributes the largest amount of reaction from the market.
+```
+for (type in announcement_types) {
+current_announce <- merged[!is.na(merged$Announcement_signal) &
+!is.infinite(merged$Announcement_signal) &
+merged$Code == type,]
+current_model <- lm(current_announce$Five_min_market_signal ~ current_announce$Announcement_signal)
+current_summary <- summary(current_model)
+hypothesis_b_table[nrow(hypothesis_b_table) + 1,]$event_name <- type
+hypothesis_b_table[nrow(hypothesis_b_table),]$linear_coefficient <- current_summary$coefficients[2]
+hypothesis_b_table[nrow(hypothesis_b_table),]$r_squared <- current_summary$adj.r.squared
+hypothesis_b_table[nrow(hypothesis_b_table),]$p_value <- glance(current_model)$p.value
+}
+hypothesis_b_table <- hypothesis_b_table[order(hypothesis_b_table$r_squared, decreasing = TRUE),]
+head(hypothesis_b_table)
+```
+### Output
+```
+event_name linear_coefficient r_squared p_value
+28 ISM 0.0624619119 0.4174268 4.544401e-08
+NA ADP 0.0013039245 0.2868906 1.255331e-05
+34 NHS 0.0090137989 0.2421148 8.078163e-05
+6 CCO 0.0125749116 0.2382468 8.056598e-05
+44 RES 0.0005603672 0.2181707 2.498589e-04
+24 INCL -0.0165320724 0.1998819 1.455972e-13
+```
+## Conlucison: Getting Rid of the Insignificant
+For our final table, we will get rid of announcement types that have a p value of >0.05, due to a lack of
+evidence that they do indeed shift the market.
+```
+hypothesis_b_table <- hypothesis_b_table[hypothesis_b_table$p_value < 0.05 & !is.na(hypothesis_b_table$p_value),]
+head(hypothesis_b_table)
+```
+### Output
+```
+event_name linear_coefficient r_squared p_value
+28 ISM 0.0624619119 0.4174268 4.544401e-08
+NA ADP 0.0013039245 0.2868906 1.255331e-05
+34 NHS 0.0090137989 0.2421148 8.078163e-05
+6 CCO 0.0125749116 0.2382468 8.056598e-05
+44 RES 0.0005603672 0.2181707 2.498589e-04
+24 INCL -0.0165320724 0.1998819 1.455972e-13
+```
+And there you have it! We have our ISM (ISM Manufacturing) contributing to over 40% of the market’s
+price changes in the 5 minutes after the announcements, as well as others topping above the 20% range, all
+with irrefutable statistical significance.
+
+
+
+
 
